@@ -16,6 +16,7 @@ const (
 	CodeNoChg   = "nochg"
 	CodeOK      = "ok"
 	CodeBadAuth = "badauth"
+	CodeAbuse   = "abuse"
 	CodeNotFQDN = "notfqdn"
 	CodeBadIP   = "badip"
 	CodeNoHost  = "nohost"
@@ -37,6 +38,8 @@ func httpStatus(code string) int {
 		return http.StatusOK
 	case CodeBadAuth:
 		return http.StatusUnauthorized
+	case CodeAbuse:
+		return http.StatusTooManyRequests
 	case CodeNotFQDN, CodeBadIP:
 		return http.StatusBadRequest
 	case CodeNoHost:

@@ -2,8 +2,10 @@ package server
 
 import (
 	"errors"
+	"math"
 	"net/http"
 	"net/netip"
+	"strconv"
 
 	"linode-ddns/internal/config"
 	"linode-ddns/internal/linode"
@@ -83,7 +85,14 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 // authorize authenticates the request and validates its domain parameter. On
 // failure it writes the response and returns ok=false.
 func (s *Server) authorize(w http.ResponseWriter, r *http.Request) (u *config.User, host string, ok bool) {
-	if u = s.authenticate(r); u == nil {
+	client := s.clientIP(r)
+	if wait, blocked := s.limiter.blocked(client); blocked {
+		s.log.Warn("auth blocked", "reason", "too many failed logins", "remote", client)
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
+		write(w, r, Result{Code: CodeAbuse, Message: "too many failed logins"})
+		return nil, "", false
+	}
+	if u = s.authenticate(r, client); u == nil {
 		write(w, r, Result{Code: CodeBadAuth})
 		return nil, "", false
 	}

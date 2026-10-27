@@ -23,6 +23,7 @@ type Server struct {
 	// dummyHash is compared against for unknown usernames so that response
 	// time does not reveal which usernames exist.
 	dummyHash []byte
+	limiter   *failLimiter
 }
 
 func New(cfg *config.Config, resolver *linode.Resolver, log *slog.Logger) *Server {
@@ -30,7 +31,7 @@ func New(cfg *config.Config, resolver *linode.Resolver, log *slog.Logger) *Serve
 	if err != nil {
 		panic(err)
 	}
-	s := &Server{cfg: cfg, resolver: resolver, log: log, mux: http.NewServeMux(), dummyHash: dummy}
+	s := &Server{cfg: cfg, resolver: resolver, log: log, mux: http.NewServeMux(), dummyHash: dummy, limiter: newFailLimiter()}
 	s.mux.HandleFunc("GET /v1/status", s.handleStatus)
 	s.mux.HandleFunc("GET /v1/update", s.handleUpdate)
 	return s
@@ -94,20 +95,23 @@ func (r *statusRecorder) WriteHeader(status int) {
 }
 
 // authenticate checks basic auth credentials and returns the user, or nil.
-func (s *Server) authenticate(r *http.Request) *config.User {
+// Wrong credentials count against the client's failed login limit.
+func (s *Server) authenticate(r *http.Request, client string) *config.User {
 	name, pass, ok := r.BasicAuth()
 	if !ok {
-		s.log.Info("auth failed", "reason", "no credentials", "remote", s.clientIP(r))
+		s.log.Info("auth failed", "reason", "no credentials", "remote", client)
 		return nil
 	}
 	u := s.cfg.User(name)
 	if u == nil {
 		bcrypt.CompareHashAndPassword(s.dummyHash, []byte(pass))
-		s.log.Warn("auth failed", "reason", "unknown user", "user", name, "remote", s.clientIP(r))
+		s.limiter.fail(client)
+		s.log.Warn("auth failed", "reason", "unknown user", "user", name, "remote", client)
 		return nil
 	}
 	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(pass)) != nil {
-		s.log.Warn("auth failed", "reason", "wrong password", "user", name, "remote", s.clientIP(r))
+		s.limiter.fail(client)
+		s.log.Warn("auth failed", "reason", "wrong password", "user", name, "remote", client)
 		return nil
 	}
 	return u

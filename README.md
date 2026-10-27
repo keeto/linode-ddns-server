@@ -111,12 +111,15 @@ The response format depends on the `Accept` header:
 | `good <ip>` | 200 | Record updated |
 | `nochg <ip>` | 200 | Record already had this IP |
 | `badauth` | 401 | Missing or wrong credentials |
+| `abuse` | 429 | Too many failed logins from this client; see `Retry-After` |
 | `notfqdn` | 400 | `domain` missing or not a valid hostname |
 | `badip` | 400 | `ip`/`ipv6` missing or wrong address family |
 | `nohost` | 404 | Hostname not allowed for this user, or no matching record |
 | `911` | 502 | Linode API error (details in server log) |
 
 If a request covers several records, the HTTP status comes from the first record that failed.
+
+Failed logins are limited per client address (per /64 for IPv6). After 10 failures in a row, the client gets `abuse` until it regains an attempt, one per minute. Behind a reverse proxy, set `trusted_proxies`; otherwise every client shares the proxy's address and one client's failures lock out the others.
 
 ### `GET /v1/update?domain=<host>&ip=<ipv4>&ipv6=<ipv6>`
 
