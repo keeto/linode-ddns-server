@@ -40,7 +40,14 @@ type Resolver struct {
 
 	mu    sync.Mutex
 	cache map[cacheKey]entry
-	locks map[cacheKey]*sync.Mutex
+	locks map[cacheKey]*keyLock
+}
+
+// keyLock serializes operations on one record. refs counts holders and
+// waiters, guarded by Resolver.mu; the lock is removed when it drops to zero.
+type keyLock struct {
+	sync.Mutex
+	refs int
 }
 
 func NewResolver(c *Client) *Resolver {
@@ -172,16 +179,24 @@ func sameAddr(target string, ip netip.Addr) bool {
 func (r *Resolver) lock(k cacheKey) func() {
 	r.mu.Lock()
 	if r.locks == nil {
-		r.locks = make(map[cacheKey]*sync.Mutex)
+		r.locks = make(map[cacheKey]*keyLock)
 	}
 	l, ok := r.locks[k]
 	if !ok {
-		l = &sync.Mutex{}
+		l = &keyLock{}
 		r.locks[k] = l
 	}
+	l.refs++
 	r.mu.Unlock()
 	l.Lock()
-	return l.Unlock
+	return func() {
+		l.Unlock()
+		r.mu.Lock()
+		if l.refs--; l.refs == 0 {
+			delete(r.locks, k)
+		}
+		r.mu.Unlock()
+	}
 }
 
 func (r *Resolver) cached(k cacheKey) (entry, bool) {
