@@ -6,3 +6,6 @@
 
 # Binary from `make bin`.
 /linode-ddns
+
+# Claude Code local state and worktrees.
+/.claude/
