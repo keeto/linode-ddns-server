@@ -20,6 +20,10 @@ const DefaultBaseURL = "https://api.linode.com/v4"
 
 const pageSize = 500
 
+// maxResponseBytes bounds a decoded response body. A full page of records is
+// well under 1 MiB.
+const maxResponseBytes = 8 << 20
+
 // ErrNotFound is returned when the API responds 404.
 var ErrNotFound = errors.New("linode: not found")
 
@@ -147,7 +151,7 @@ func (c *Client) do(ctx context.Context, token, method, path string, query url.V
 		}
 		return apiErr
 	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(out); err != nil {
 		return fmt.Errorf("linode: decode %s %s: %w", method, path, err)
 	}
 	return nil
