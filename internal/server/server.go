@@ -113,7 +113,8 @@ func (s *Server) authenticate(r *http.Request, client string) *config.User {
 	if u == nil {
 		bcrypt.CompareHashAndPassword(s.dummyHash, []byte(pass))
 		s.limiter.fail(client)
-		s.log.Warn("auth failed", "reason", "unknown user", "user", name, "remote", client)
+		// The name is not logged: it may be a password typed in the wrong field.
+		s.log.Warn("auth failed", "reason", "unknown user", "remote", client)
 		return nil
 	}
 	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(pass)) != nil {
