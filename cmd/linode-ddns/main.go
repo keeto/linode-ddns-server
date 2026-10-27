@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/term"
 
 	"linode-ddns/internal/config"
 	"linode-ddns/internal/linode"
@@ -134,12 +135,11 @@ func loopback(listen string) bool {
 // bcrypt hash to out.
 func hashPassword(in io.Reader, out, prompt io.Writer) error {
 	fmt.Fprint(prompt, "Password: ")
-	line, err := bufio.NewReader(in).ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
+	pw, err := readPassword(in)
+	if err != nil {
 		return err
 	}
 	fmt.Fprintln(prompt)
-	pw := strings.TrimRight(line, "\r\n")
 	if pw == "" {
 		return errors.New("empty password")
 	}
@@ -149,4 +149,18 @@ func hashPassword(in io.Reader, out, prompt io.Writer) error {
 	}
 	fmt.Fprintln(out, string(hash))
 	return nil
+}
+
+// readPassword reads one line from in. When in is a terminal, the input is not
+// echoed.
+func readPassword(in io.Reader) (string, error) {
+	if f, ok := in.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		b, err := term.ReadPassword(int(f.Fd()))
+		return string(b), err
+	}
+	line, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	return strings.TrimRight(line, "\r\n"), nil
 }
