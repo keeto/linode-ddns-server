@@ -21,13 +21,20 @@ type Server struct {
 	mux      *http.ServeMux
 
 	// dummyHash is compared against for unknown usernames so that response
-	// time does not reveal which usernames exist.
+	// time does not reveal which usernames exist. It uses the highest cost
+	// among the configured hashes.
 	dummyHash []byte
 	limiter   *failLimiter
 }
 
 func New(cfg *config.Config, resolver *linode.Resolver, log *slog.Logger) *Server {
-	dummy, err := bcrypt.GenerateFromPassword([]byte("linode-ddns-dummy"), bcrypt.DefaultCost)
+	cost := bcrypt.MinCost
+	for _, u := range cfg.Users {
+		if c, err := bcrypt.Cost([]byte(u.PasswordHash)); err == nil {
+			cost = max(cost, c)
+		}
+	}
+	dummy, err := bcrypt.GenerateFromPassword([]byte("linode-ddns-dummy"), cost)
 	if err != nil {
 		panic(err)
 	}

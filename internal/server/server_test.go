@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"linode-ddns/internal/config"
 	"linode-ddns/internal/linode"
 	"linode-ddns/internal/linode/linodetest"
@@ -46,6 +48,25 @@ func setup(t *testing.T) (*linodetest.Fake, *httptest.Server) {
 	srv := httptest.NewServer(New(cfg, linode.NewResolver(f.Client()), log))
 	t.Cleanup(srv.Close)
 	return f, srv
+}
+
+func TestDummyHashCost(t *testing.T) {
+	strong, err := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost+1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Parse([]byte(cfgYAML + `
+  - username: strong
+    password_hash: "` + string(strong) + `"
+    linode_api_token: tok
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if c, _ := bcrypt.Cost(s.dummyHash); c != bcrypt.MinCost+1 {
+		t.Errorf("dummy hash cost = %d, want %d", c, bcrypt.MinCost+1)
+	}
 }
 
 type response struct {
