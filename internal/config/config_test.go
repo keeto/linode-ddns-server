@@ -18,9 +18,10 @@ users:
     domains:
       - Home.Example.COM.
       - example.com
-  - username: open
+  - username: other
     password_hash: "` + hash + `"
     linode_api_token: tok2
+    domains: [other.example.net]
 `
 
 func TestParseValid(t *testing.T) {
@@ -38,8 +39,8 @@ func TestParseValid(t *testing.T) {
 	if !u.Allows("home.example.com") || !u.Allows("example.com") || u.Allows("other.example.com") {
 		t.Errorf("router allow list wrong: %v", u.Domains)
 	}
-	if open := c.User("open"); open == nil || !open.Allows("anything.example.net") {
-		t.Errorf("user without domains should allow any host")
+	if other := c.User("other"); other == nil || !other.Allows("other.example.net") || other.Allows("home.example.com") {
+		t.Errorf("other allow list wrong: %+v", other)
 	}
 	if c.User("nobody") != nil {
 		t.Errorf("unknown user found")
@@ -50,8 +51,11 @@ func TestParseErrors(t *testing.T) {
 	user := func(fields string) string {
 		return "users:\n  - " + strings.ReplaceAll(strings.TrimSpace(fields), "\n", "\n    ") + "\n"
 	}
-	full := "username: u\npassword_hash: \"" + hash + "\"\nlinode_api_token: t"
+	base := "username: u\npassword_hash: \"" + hash + "\"\nlinode_api_token: t"
+	full := base + "\ndomains: [a.example.com]"
 	tests := map[string]string{
+		"missing domains":  user(base),
+		"empty domains":    user(base + "\ndomains: []"),
 		"malformed":        "users: [",
 		"unknown field":    user(full + "\npassword: plain"),
 		"no users":         "listen: \":80\"\n",
@@ -60,8 +64,8 @@ func TestParseErrors(t *testing.T) {
 		"missing hash":     user("username: u\nlinode_api_token: t"),
 		"bad hash":         user("username: u\npassword_hash: nothash\nlinode_api_token: t"),
 		"missing token":    user("username: u\npassword_hash: \"" + hash + "\""),
-		"bad domain":       user(full + "\ndomains: [\"not a host\"]"),
-		"single label":     user(full + "\ndomains: [localhost]"),
+		"bad domain":       user(base + "\ndomains: [\"not a host\"]"),
+		"single label":     user(base + "\ndomains: [localhost]"),
 		"duplicate user":   user(full) + "  - " + strings.ReplaceAll(full, "\n", "\n    ") + "\n",
 		"half tls":         "tls:\n  cert_file: c.pem\n" + user(full),
 	}

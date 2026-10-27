@@ -97,6 +97,8 @@ func (c *Config) validate() error {
 			return fmt.Errorf("user %q: password_hash is required", u.Username)
 		case u.LinodeAPIToken == "":
 			return fmt.Errorf("user %q: linode_api_token is required", u.Username)
+		case len(u.Domains) == 0:
+			return fmt.Errorf("user %q: domains is required", u.Username)
 		}
 		if _, err := bcrypt.Cost([]byte(u.PasswordHash)); err != nil {
 			return fmt.Errorf("user %q: invalid password_hash: %w", u.Username, err)
@@ -152,10 +154,9 @@ func parsePrefix(s string) (netip.Prefix, error) {
 	return netip.PrefixFrom(a, a.BitLen()), nil
 }
 
-// Allows reports whether the user may update host. A user without a domains
-// list may update any host its token can resolve.
+// Allows reports whether host is in the user's domains list.
 func (u *User) Allows(host string) bool {
-	return len(u.allowed) == 0 || u.allowed[host]
+	return u.allowed[host]
 }
 
 // NormalizeHost lowercases host and strips surrounding whitespace and a

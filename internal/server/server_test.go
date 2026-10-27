@@ -25,9 +25,10 @@ users:
     password_hash: "` + hash + `"
     linode_api_token: tok
     domains: [home.example.com, v4only.example.com, gone.example.com, broken.example.com]
-  - username: open
+  - username: other
     password_hash: "` + hash + `"
     linode_api_token: tok
+    domains: [other.example.com]
 `
 
 func setup(t *testing.T) (*linodetest.Fake, *httptest.Server) {
@@ -59,6 +60,7 @@ func TestDummyHashCost(t *testing.T) {
   - username: strong
     password_hash: "` + string(strong) + `"
     linode_api_token: tok
+    domains: [home.example.com]
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -143,7 +145,8 @@ func TestUpdateText(t *testing.T) {
 		{"good v6", "/v1/update?domain=home.example.com&ipv6=2001:db8::2", auth, 200, "good 2001:db8::2\n"},
 		{"both", "/v1/update?domain=home.example.com&ip=3.3.3.3&ipv6=2001:db8::2", auth, 200, "good 3.3.3.3\nnochg 2001:db8::2\n"},
 		{"partial", "/v1/update?domain=v4only.example.com&ip=3.3.3.3&ipv6=2001:db8::2", auth, 404, "good 3.3.3.3\nnohost\n"},
-		{"open user", "/v1/update?domain=other.example.com&ip=4.4.4.4", "open:secret", 200, "good 4.4.4.4\n"},
+		{"other user", "/v1/update?domain=other.example.com&ip=4.4.4.4", "other:secret", 200, "good 4.4.4.4\n"},
+		{"other user not allowed", "/v1/update?domain=home.example.com&ip=4.4.4.4", "other:secret", 404, "nohost\n"},
 	}
 	for _, tt := range tests {
 		got := get(t, srv, tt.path, tt.user, "")

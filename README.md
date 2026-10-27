@@ -23,14 +23,14 @@ users:
   - username: "router"
     password_hash: "$2a$10$..."      # from `linode-ddns hash-password`
     linode_api_token: "..."          # needs Domains read/write
-    domains:                         # optional allow list
+    domains:                         # required; hostnames this user may update
       - home.example.com
       - example.com
 ```
 
 - Passwords are stored as bcrypt hashes. To generate one, run `echo -n 'pw' | linode-ddns hash-password`. You can also run `linode-ddns hash-password` and type the password at the prompt.
 - Records are found by hostname. The server picks the token's Linode domain that is the longest suffix of the hostname, then finds the A or AAAA record with the matching name. Records must already exist in Linode. The server never creates them.
-- If `domains` is omitted, the user can update any hostname that the token can resolve.
+- Each user must list the exact hostnames it may update in `domains`. Other hostnames get `nohost`, even if the token can reach them.
 - The server exits with an error if the file is missing, the YAML is malformed, or validation fails. Unknown fields are also rejected.
 
 ## Running
