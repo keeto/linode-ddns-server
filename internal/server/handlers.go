@@ -120,7 +120,9 @@ func (s *Server) failure(typ, host, user string, err error) Result {
 }
 
 // parseIPs validates the ip (IPv4) and ipv6 parameters. At least one is
-// required. A non-empty message describes the problem.
+// required. Addresses must be unicast: loopback, link-local, multicast,
+// broadcast and unspecified addresses are rejected, private ones are allowed.
+// A non-empty message describes the problem.
 func parseIPs(ip4, ip6 string) ([]recordRequest, string) {
 	if ip4 == "" && ip6 == "" {
 		return nil, "ip or ipv6 is required"
@@ -128,15 +130,15 @@ func parseIPs(ip4, ip6 string) ([]recordRequest, string) {
 	var reqs []recordRequest
 	if ip4 != "" {
 		a, err := netip.ParseAddr(ip4)
-		if err != nil || !a.Is4() {
-			return nil, "ip must be an IPv4 address"
+		if err != nil || !a.Is4() || !a.IsGlobalUnicast() {
+			return nil, "ip must be a unicast IPv4 address"
 		}
 		reqs = append(reqs, recordRequest{"A", a})
 	}
 	if ip6 != "" {
 		a, err := netip.ParseAddr(ip6)
-		if err != nil || !a.Is6() || a.Is4In6() || a.Zone() != "" {
-			return nil, "ipv6 must be an IPv6 address"
+		if err != nil || !a.Is6() || a.Is4In6() || a.Zone() != "" || !a.IsGlobalUnicast() {
+			return nil, "ipv6 must be a unicast IPv6 address"
 		}
 		reqs = append(reqs, recordRequest{"AAAA", a})
 	}

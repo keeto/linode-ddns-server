@@ -69,6 +69,29 @@ func TestDummyHashCost(t *testing.T) {
 	}
 }
 
+func TestParseIPs(t *testing.T) {
+	for _, ip := range []string{"10.0.0.1", "192.168.1.1", "203.0.113.5"} {
+		if _, msg := parseIPs(ip, ""); msg != "" {
+			t.Errorf("ip=%s rejected: %s", ip, msg)
+		}
+	}
+	for _, ip := range []string{"fd00::1", "2001:db8::1"} {
+		if _, msg := parseIPs("", ip); msg != "" {
+			t.Errorf("ipv6=%s rejected: %s", ip, msg)
+		}
+	}
+	for _, ip := range []string{"0.0.0.0", "127.0.0.1", "169.254.1.1", "224.0.0.1", "255.255.255.255"} {
+		if _, msg := parseIPs(ip, ""); msg == "" {
+			t.Errorf("ip=%s accepted", ip)
+		}
+	}
+	for _, ip := range []string{"::", "::1", "fe80::1", "ff02::1"} {
+		if _, msg := parseIPs("", ip); msg == "" {
+			t.Errorf("ipv6=%s accepted", ip)
+		}
+	}
+}
+
 type response struct {
 	status int
 	ctype  string

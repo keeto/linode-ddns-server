@@ -116,7 +116,7 @@ The response format depends on the `Accept` header:
 | `badauth` | 401 | Missing or wrong credentials |
 | `abuse` | 429 | Too many failed logins from this client; see `Retry-After` |
 | `notfqdn` | 400 | `domain` missing or not a valid hostname |
-| `badip` | 400 | `ip`/`ipv6` missing or wrong address family |
+| `badip` | 400 | `ip`/`ipv6` missing, wrong address family, or not unicast (loopback, link-local, multicast, broadcast, unspecified) |
 | `nohost` | 404 | Hostname not allowed for this user, or no matching record |
 | `911` | 502 | Linode API error (details in server log) |
 
