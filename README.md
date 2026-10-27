@@ -43,14 +43,17 @@ users:
 
 ```sh
 docker build -t linode-ddns .
-docker run -d -p 8080:8080 -v "$PWD/linode-ddns.yaml:/config/linode-ddns.yaml:ro" linode-ddns
+chmod 600 linode-ddns.yaml
+docker run -d -p 8080:8080 --user "$(id -u):$(id -g)" \
+  -v "$PWD/linode-ddns.yaml:/config/linode-ddns.yaml:ro" linode-ddns
 ```
 
 Bind-mount the config file to `/config/linode-ddns.yaml`. The image passes that path to the server automatically.
 
 - The host path must be absolute (start with `/`, or use `$PWD/`). Docker treats a bare name such as `linode-ddns.yaml` as a named volume. It then mounts an empty directory, and the server exits with `read /config/linode-ddns.yaml: is a directory`.
 - Inside the container, keep `listen` at `":8080"`. A `127.0.0.1` address there is unreachable from outside the container. To limit access to the host, publish the port with `-p 127.0.0.1:8080:8080` instead.
-- The image runs as a non-root user, so the config file must be readable by others (for example mode `644`). To hash a password with the image:
+- The config file holds Linode API tokens, so keep it at mode `600`. The server logs a warning at startup when group or others can access it. `--user "$(id -u):$(id -g)"` runs the container as the file's owner so it can still read the file. Without `--user`, the image runs as its built-in non-root user, which cannot read a `600` file owned by you.
+- To hash a password with the image:
 
 ```sh
 docker run --rm -i linode-ddns hash-password

@@ -80,6 +80,10 @@ func serve(args []string) error {
 		log.Warn("serving plain HTTP on a non-loopback address; credentials travel in cleartext unless a TLS-terminating proxy is in front",
 			"addr", cfg.Listen)
 	}
+	if fi, err := os.Stat(*configPath); err == nil && fi.Mode().Perm()&0o077 != 0 {
+		log.Warn("config file holds Linode API tokens but is accessible by group or others; restrict it with chmod 600",
+			"path", *configPath, "mode", fi.Mode().Perm())
+	}
 	srv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           server.New(cfg, linode.NewResolver(linode.NewClient()), log),
