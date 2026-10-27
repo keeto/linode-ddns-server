@@ -96,12 +96,27 @@ Quote conditions that contain a comma or start with `!` when they appear inside 
 
 ### Docker
 
+Pre-built images are published on Docker Hub as [`keeto/linode-ddns`](https://hub.docker.com/r/keeto/linode-ddns) for `linux/amd64`, `linux/arm64`, `linux/arm/v7`, `linux/ppc64le` and `linux/s390x`. Each release is tagged with its version, for example `1.1.0`, and the newest release is also tagged `latest`. Pin a version tag in production, so that an update only happens when you change the tag.
+
 ```sh
-docker build -t linode-ddns .
 chmod 600 linode-ddns.yaml
 docker run -d -p 8080:8080 --user "$(id -u):$(id -g)" \
-  -v "$PWD/linode-ddns.yaml:/config/linode-ddns.yaml:ro" linode-ddns
+  -v "$PWD/linode-ddns.yaml:/config/linode-ddns.yaml:ro" keeto/linode-ddns:1.1.0
 ```
+
+With Docker Compose:
+
+```yaml
+services:
+  linode-ddns:
+    image: keeto/linode-ddns:1.1.0
+    user: "1000:1000"            # owner of linode-ddns.yaml; see `id -u` and `id -g`
+    volumes:
+      - ./linode-ddns.yaml:/config/linode-ddns.yaml:ro
+    restart: unless-stopped
+```
+
+To build the image yourself instead, run `docker build -t linode-ddns .` and use `linode-ddns` as the image name.
 
 Bind-mount the config file to `/config/linode-ddns.yaml`. The image passes that path to the server automatically.
 
@@ -111,7 +126,7 @@ Bind-mount the config file to `/config/linode-ddns.yaml`. The image passes that 
 - To hash a password with the image:
 
 ```sh
-docker run --rm -i linode-ddns hash-password
+docker run --rm -it keeto/linode-ddns:1.1.0 hash-password
 ```
 
 ### Behind nginx
@@ -213,7 +228,7 @@ make test                                   # go vet + go test -race
 make bin                                    # local binary ./linode-ddns
 make image                                  # local docker image linode-ddns:latest
 make build                                  # all platforms, into the buildx cache
-make push IMAGE=myuser/linode-ddns          # push :<VERSION> and :latest (docker login first)
+make push IMAGE=keeto/linode-ddns           # push :<VERSION> and :latest (docker login first)
 ```
 
 The image version comes from the [`VERSION`](VERSION) file. To release a new version, change it there and commit it before running `make build` and `make push`.
