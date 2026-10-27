@@ -20,6 +20,8 @@ import (
 const hash = "$2a$04$8LDA2Jiln/ij5hj6db7R7uAMEzP5xyPxbSBnfeV/D42Pb6rIsx1yS"
 
 const cfgYAML = `
+ip_policies:
+  lan: ["!192.168.1.1", private]
 users:
   - username: router
     password_hash: "` + hash + `"
@@ -29,15 +31,28 @@ users:
     password_hash: "` + hash + `"
     linode_api_token: tok
     domains: [other.example.com]
+  - username: policy
+    password_hash: "` + hash + `"
+    linode_api_token: tok
+    ips: lan
+    domains:
+      - home.example.com
+      - host: v4only.example.com
+        ips: [source, loopback]
 `
 
 func setup(t *testing.T) (*linodetest.Fake, *httptest.Server) {
+	t.Helper()
+	return setupWith(t, cfgYAML)
+}
+
+func setupWith(t *testing.T, cfgYAML string) (*linodetest.Fake, *httptest.Server) {
 	t.Helper()
 	f := linodetest.New("tok")
 	t.Cleanup(f.Close)
 	f.AddDomain(1, "example.com")
 	f.AddRecord(1, linode.Record{ID: 10, Type: "A", Name: "home", Target: "1.1.1.1"})
-	f.AddRecord(1, linode.Record{ID: 11, Type: "AAAA", Name: "home", Target: "2001:db8::1"})
+	f.AddRecord(1, linode.Record{ID: 11, Type: "AAAA", Name: "home", Target: "2001:4860::1"})
 	f.AddRecord(1, linode.Record{ID: 12, Type: "A", Name: "v4only", Target: "1.1.1.1"})
 	f.AddRecord(1, linode.Record{ID: 13, Type: "A", Name: "other", Target: "1.1.1.1"})
 
@@ -71,26 +86,52 @@ func TestDummyHashCost(t *testing.T) {
 	}
 }
 
-func TestParseIPs(t *testing.T) {
-	for _, ip := range []string{"10.0.0.1", "192.168.1.1", "203.0.113.5"} {
-		if _, msg := parseIPs(ip, ""); msg != "" {
-			t.Errorf("ip=%s rejected: %s", ip, msg)
+func TestIPPolicy(t *testing.T) {
+	f, srv := setup(t)
+	const pol = "policy:secret"
+	tests := []struct {
+		name, path, user string
+		status           int
+		body             string
+	}{
+		{"default denies private", "/v1/update?domain=home.example.com&ip=10.0.0.1", auth, 400, "badip 10.0.0.1\n"},
+		{"default denies loopback", "/v1/update?domain=home.example.com&ip=127.0.0.1", auth, 400, "badip 127.0.0.1\n"},
+		{"split", "/v1/update?domain=home.example.com&ip=2.2.2.2&ipv6=fd00::1", auth, 400, "good 2.2.2.2\nbadip fd00::1\n"},
+		{"user policy allows", "/v1/update?domain=home.example.com&ip=192.168.5.5", pol, 200, "good 192.168.5.5\n"},
+		{"user policy deny rule", "/v1/update?domain=home.example.com&ip=192.168.1.1", pol, 400, "badip 192.168.1.1\n"},
+		{"user policy no match", "/v1/update?domain=home.example.com&ip=8.8.8.8", pol, 400, "badip 8.8.8.8\n"},
+		{"domain allows loopback", "/v1/update?domain=v4only.example.com&ip=127.0.0.1", pol, 200, "good 127.0.0.1\n"},
+	}
+	for _, tt := range tests {
+		got := get(t, srv, tt.path, tt.user, "")
+		if got.status != tt.status || got.body != tt.body {
+			t.Errorf("%s: got %d %q; want %d %q", tt.name, got.status, got.body, tt.status, tt.body)
 		}
 	}
-	for _, ip := range []string{"fd00::1", "2001:db8::1"} {
-		if _, msg := parseIPs("", ip); msg != "" {
-			t.Errorf("ipv6=%s rejected: %s", ip, msg)
-		}
+	if f.Target(1, 10) != "192.168.5.5" || f.Target(1, 12) != "127.0.0.1" {
+		t.Errorf("targets: %s %s", f.Target(1, 10), f.Target(1, 12))
 	}
-	for _, ip := range []string{"0.0.0.0", "127.0.0.1", "169.254.1.1", "224.0.0.1", "255.255.255.255"} {
-		if _, msg := parseIPs(ip, ""); msg == "" {
-			t.Errorf("ip=%s accepted", ip)
+}
+
+func TestIPPolicySource(t *testing.T) {
+	_, srv := setupWith(t, "trusted_proxies: [127.0.0.1]\n"+cfgYAML)
+	update := func(ip string) response {
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/update?domain=v4only.example.com&ip="+ip, nil)
+		req.SetBasicAuth("policy", "secret")
+		req.Header.Set("X-Forwarded-For", "198.51.100.7")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
 		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return response{status: resp.StatusCode, body: string(b)}
 	}
-	for _, ip := range []string{"::", "::1", "fe80::1", "ff02::1"} {
-		if _, msg := parseIPs("", ip); msg == "" {
-			t.Errorf("ipv6=%s accepted", ip)
-		}
+	if got := update("198.51.100.7"); got.status != 200 || got.body != "good 198.51.100.7\n" {
+		t.Errorf("own address: %d %q", got.status, got.body)
+	}
+	if got := update("198.51.100.8"); got.status != 400 || got.body != "badip 198.51.100.8\n" {
+		t.Errorf("other address: %d %q", got.status, got.body)
 	}
 }
 
@@ -138,14 +179,14 @@ func TestUpdateText(t *testing.T) {
 		{"no record", "/v1/update?domain=gone.example.com&ip=2.2.2.2", auth, 404, "nohost\n"},
 		{"no ip", "/v1/update?domain=home.example.com", auth, 400, "badip\n"},
 		{"garbage ip", "/v1/update?domain=home.example.com&ip=nope", auth, 400, "badip\n"},
-		{"v6 in ip", "/v1/update?domain=home.example.com&ip=2001:db8::2", auth, 400, "badip\n"},
+		{"v6 in ip", "/v1/update?domain=home.example.com&ip=2001:4860::2", auth, 400, "badip\n"},
 		{"v4 in ipv6", "/v1/update?domain=home.example.com&ipv6=2.2.2.2", auth, 400, "badip\n"},
 		{"4in6 in ipv6", "/v1/update?domain=home.example.com&ipv6=::ffff:2.2.2.2", auth, 400, "badip\n"},
 		{"nochg", "/v1/update?domain=home.example.com&ip=1.1.1.1", auth, 200, "nochg 1.1.1.1\n"},
 		{"good", "/v1/update?domain=HOME.example.com.&ip=2.2.2.2", auth, 200, "good 2.2.2.2\n"},
-		{"good v6", "/v1/update?domain=home.example.com&ipv6=2001:db8::2", auth, 200, "good 2001:db8::2\n"},
-		{"both", "/v1/update?domain=home.example.com&ip=3.3.3.3&ipv6=2001:db8::2", auth, 200, "good 3.3.3.3\nnochg 2001:db8::2\n"},
-		{"partial", "/v1/update?domain=v4only.example.com&ip=3.3.3.3&ipv6=2001:db8::2", auth, 404, "good 3.3.3.3\nnohost\n"},
+		{"good v6", "/v1/update?domain=home.example.com&ipv6=2001:4860::2", auth, 200, "good 2001:4860::2\n"},
+		{"both", "/v1/update?domain=home.example.com&ip=3.3.3.3&ipv6=2001:4860::2", auth, 200, "good 3.3.3.3\nnochg 2001:4860::2\n"},
+		{"partial", "/v1/update?domain=v4only.example.com&ip=3.3.3.3&ipv6=2001:4860::2", auth, 404, "good 3.3.3.3\nnohost\n"},
 		{"other user", "/v1/update?domain=other.example.com&ip=4.4.4.4", "other:secret", 200, "good 4.4.4.4\n"},
 		{"other user not allowed", "/v1/update?domain=home.example.com&ip=4.4.4.4", "other:secret", 404, "nohost\n"},
 	}
@@ -161,14 +202,14 @@ func TestUpdateText(t *testing.T) {
 			t.Errorf("%s: X-Content-Type-Options %q", tt.name, got.nosniff)
 		}
 	}
-	if f.Target(1, 10) != "3.3.3.3" || f.Target(1, 11) != "2001:db8::2" || f.Target(1, 13) != "4.4.4.4" {
+	if f.Target(1, 10) != "3.3.3.3" || f.Target(1, 11) != "2001:4860::2" || f.Target(1, 13) != "4.4.4.4" {
 		t.Errorf("records not updated: %s %s %s", f.Target(1, 10), f.Target(1, 11), f.Target(1, 13))
 	}
 }
 
 func TestUpdateJSON(t *testing.T) {
 	_, srv := setup(t)
-	got := get(t, srv, "/v1/update?domain=home.example.com&ip=2.2.2.2&ipv6=2001:db8::1", auth, "application/json")
+	got := get(t, srv, "/v1/update?domain=home.example.com&ip=2.2.2.2&ipv6=2001:4860::1", auth, "application/json")
 	if got.status != 200 || got.ctype != "application/json" {
 		t.Fatalf("got %d %q", got.status, got.ctype)
 	}
@@ -176,7 +217,7 @@ func TestUpdateJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(got.body), &body); err != nil {
 		t.Fatal(err)
 	}
-	want := []Result{{Type: "A", Code: "good", IP: "2.2.2.2"}, {Type: "AAAA", Code: "nochg", IP: "2001:db8::1"}}
+	want := []Result{{Type: "A", Code: "good", IP: "2.2.2.2"}, {Type: "AAAA", Code: "nochg", IP: "2001:4860::1"}}
 	if len(body.Results) != 2 || body.Results[0] != want[0] || body.Results[1] != want[1] {
 		t.Errorf("results = %+v", body.Results)
 	}
@@ -202,7 +243,7 @@ func TestUpstreamError(t *testing.T) {
 func TestStatus(t *testing.T) {
 	_, srv := setup(t)
 	got := get(t, srv, "/v1/status?domain=home.example.com", auth, "")
-	if got.status != 200 || got.body != "A 1.1.1.1\nAAAA 2001:db8::1\n" {
+	if got.status != 200 || got.body != "A 1.1.1.1\nAAAA 2001:4860::1\n" {
 		t.Errorf("home: %d %q", got.status, got.body)
 	}
 	got = get(t, srv, "/v1/status?domain=v4only.example.com", auth, "application/json")

@@ -33,9 +33,17 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	policy, src := u.IPPolicy(host), s.clientAddr(r)
 	results := make([]Result, 0, len(reqs))
 	for _, req := range reqs {
 		res := Result{Type: req.typ, IP: req.ip.String()}
+		if allowed, rule := policy.Allows(req.ip, src); !allowed {
+			s.log.Warn("update denied by ip policy", "user", u.Username, "host", host, "type", req.typ,
+				"ip", req.ip, "source", src, "policy", policy.Name, "rule", rule)
+			res.Code, res.Message = CodeBadIP, req.ip.String()+" is not permitted for "+host
+			results = append(results, res)
+			continue
+		}
 		changed, err := s.resolver.Update(r.Context(), u.LinodeAPIToken, host, req.typ, req.ip)
 		switch {
 		case err != nil:
@@ -120,9 +128,8 @@ func (s *Server) failure(typ, host, user string, err error) Result {
 }
 
 // parseIPs validates the ip (IPv4) and ipv6 parameters. At least one is
-// required. Addresses must be unicast: loopback, link-local, multicast,
-// broadcast and unspecified addresses are rejected, private ones are allowed.
-// A non-empty message describes the problem.
+// required. Which addresses a host accepts is decided by its IP policy. A
+// non-empty message describes the problem.
 func parseIPs(ip4, ip6 string) ([]recordRequest, string) {
 	if ip4 == "" && ip6 == "" {
 		return nil, "ip or ipv6 is required"
@@ -130,15 +137,15 @@ func parseIPs(ip4, ip6 string) ([]recordRequest, string) {
 	var reqs []recordRequest
 	if ip4 != "" {
 		a, err := netip.ParseAddr(ip4)
-		if err != nil || !a.Is4() || !a.IsGlobalUnicast() {
-			return nil, "ip must be a unicast IPv4 address"
+		if err != nil || !a.Is4() {
+			return nil, "ip must be an IPv4 address"
 		}
 		reqs = append(reqs, recordRequest{"A", a})
 	}
 	if ip6 != "" {
 		a, err := netip.ParseAddr(ip6)
-		if err != nil || !a.Is6() || a.Is4In6() || a.Zone() != "" || !a.IsGlobalUnicast() {
-			return nil, "ipv6 must be a unicast IPv6 address"
+		if err != nil || !a.Is6() || a.Is4In6() || a.Zone() != "" {
+			return nil, "ipv6 must be an IPv6 address"
 		}
 		reqs = append(reqs, recordRequest{"AAAA", a})
 	}

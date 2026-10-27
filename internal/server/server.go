@@ -59,18 +59,28 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	)
 }
 
-// clientIP returns the client address for logging. When the direct peer is a
-// trusted proxy, X-Forwarded-For is walked from right to left, skipping trusted
-// proxies, and the first untrusted address is returned. Without trusted
-// proxies the header is ignored, since clients can set it to anything.
+// clientIP returns the client address as a string, for logging and the
+// failed login limit, or RemoteAddr when it cannot be parsed.
 func (s *Server) clientIP(r *http.Request) string {
+	if a := s.clientAddr(r); a.IsValid() {
+		return a.String()
+	}
+	return r.RemoteAddr
+}
+
+// clientAddr returns the client address, or the zero Addr when RemoteAddr
+// cannot be parsed. When the direct peer is a trusted proxy, X-Forwarded-For
+// is walked from right to left, skipping trusted proxies, and the first
+// untrusted address is returned. Without trusted proxies the header is
+// ignored, since clients can set it to anything.
+func (s *Server) clientAddr(r *http.Request) netip.Addr {
 	peer, err := netip.ParseAddrPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		return netip.Addr{}
 	}
 	client := peer.Addr().Unmap()
 	if !s.cfg.TrustedProxy(client) {
-		return client.String()
+		return client
 	}
 
 	var hops []string
@@ -87,7 +97,7 @@ func (s *Server) clientIP(r *http.Request) string {
 			break
 		}
 	}
-	return client.String()
+	return client
 }
 
 // statusRecorder captures the response status for logging.
