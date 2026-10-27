@@ -18,20 +18,75 @@ listen: ":8080"            # optional, default :8080
 tls:                       # optional; set both or neither
   cert_file: /config/cert.pem
   key_file: /config/key.pem
-trusted_proxies: [127.0.0.1]   # optional; IPs/CIDRs whose X-Forwarded-For is trusted for logging
+trusted_proxies: [127.0.0.1]   # optional; IPs/CIDRs whose X-Forwarded-For is trusted
+ip_policies:               # optional; named IP policies, see below
+  lan: [private]
+default_ips: public        # optional; policy when none is set, default public
 users:
   - username: "router"
     password_hash: "$2a$10$..."      # from `linode-ddns hash-password`
     linode_api_token: "..."          # needs Domains read/write
+    ips: public                      # optional; policy for this user's domains
     domains:                         # required; hostnames this user may update
       - home.example.com
-      - example.com
+      - host: nas.example.com        # a domain with its own policy
+        ips: lan
 ```
 
 - Passwords are stored as bcrypt hashes. To generate one, run `linode-ddns hash-password` and type the password at the prompt; it is not echoed. The password can also be piped in, but `echo 'pw' | ...` leaves it in your shell history.
 - Records are found by hostname. The server picks the token's Linode domain that is the longest suffix of the hostname, then finds the A or AAAA record with the matching name. Records must already exist in Linode. The server never creates them.
 - Each user must list the exact hostnames it may update in `domains`. Other hostnames get `nohost`, even if the token can reach them.
 - The server exits with an error if the file is missing, the YAML is malformed, or validation fails. Unknown fields are also rejected.
+
+### IP policies
+
+An IP policy decides which addresses a hostname may point at. The policy for a hostname comes from its `domains` entry, then the user's `ips`, then `default_ips`. Without any of these, only `public` addresses are allowed.
+
+A policy (`ips`, `default_ips`, or an entry in `ip_policies`) is written in one of these forms:
+
+| Form | Meaning |
+|---|---|
+| `lan` | The policy of that name in `ip_policies` |
+| `public` | One condition; addresses matching it are allowed |
+| `["!192.168.1.1", private]` | Conditions checked in order. The first match decides: allowed, or denied when the condition starts with `!` |
+| `[{deny: ...}, {allow: ...}]` | Rules checked in order. A rule's value is a condition, a list of conditions (any may match), or `{all: [conditions]}` (all must match) |
+
+The list forms can be mixed. An address that matches no rule is denied.
+
+Conditions:
+
+| Condition | Matches |
+|---|---|
+| `203.0.113.7`, `10.0.0.0/8`, `2001:db8::/32` | That address or range |
+| `public` | Globally routable addresses: none of the classes below |
+| `private` | `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7` |
+| `cgnat` | `100.64.0.0/10` |
+| `reserved` | Documentation, benchmarking and reserved ranges, such as `192.0.2.0/24`, `240.0.0.0/4`, `2001:db8::/32` |
+| `any` | Any address that is not special |
+| `source` | The address the request came from |
+| `source/N`, `source/N,M` | The same /N prefix as the requester; with two numbers, /N for IPv4 and /M for IPv6 (for example `source/32,64`) |
+| `loopback`, `link-local`, `multicast`, `broadcast`, `unspecified`, `special` | Special addresses (`special` is all of them) |
+
+Special addresses are matched only by the conditions in the last row. CIDRs, `any` and `source` never match them, so a policy allows loopback only if it lists `loopback`.
+
+`source` uses the client address. Behind a reverse proxy, set `trusted_proxies` (see [Behind nginx](#behind-nginx)); otherwise the client address is the proxy's.
+
+Examples:
+
+```yaml
+ip_policies:
+  wan: public                                 # public addresses only
+  lan: ["!192.168.1.1", private]              # private, except the gateway
+  self: [source]                              # only the router's own address
+  isp:                                        # the ISP's ranges, but not its CGNAT pool
+    - deny: cgnat
+    - allow: [198.51.100.0/24, "2001:db8:42::/48"]
+  lab: [any, loopback, link-local]            # anything, including loopback and link-local
+  pinned:                                     # public, and in the requester's /48
+    - allow: {all: [public, "source/32,48"]}
+```
+
+Quote conditions that contain a comma or start with `!` when they appear inside `[...]` or `{...}`, as YAML would otherwise split them or reject them.
 
 ## Running
 
@@ -96,7 +151,7 @@ Notes:
 
   With Docker, requests arrive from the Docker bridge gateway instead of `127.0.0.1`. Trust that address instead, for example `172.17.0.1`.
 
-  The server reads `X-Forwarded-For` only when the request comes directly from a trusted proxy. It walks the header from right to left, skips trusted entries, and logs the first untrusted address. Entries a client adds at the left end are never used. The header affects logging only; DNS updates always use the `ip`/`ipv6` parameters.
+  The server reads `X-Forwarded-For` only when the request comes directly from a trusted proxy. It walks the header from right to left, skips trusted entries, and logs the first untrusted address. Entries a client adds at the left end are never used. The resulting address is used for logging, the failed login limit, and `source` conditions in IP policies. The record itself is always set from the `ip`/`ipv6` parameters.
 - Some router clients cannot use HTTPS. For them, add a `listen 80;` server block with the same `location`. Basic auth credentials then travel in cleartext, so use a dedicated user whose `domains` list is limited to the router's hostnames.
 - nginx access logs record the query string, which includes the hostname and IP. They do not record the password, because it is sent in the `Authorization` header.
 
@@ -116,7 +171,8 @@ The response format depends on the `Accept` header:
 | `badauth` | 401 | Missing or wrong credentials |
 | `abuse` | 429 | Too many failed logins from this client; see `Retry-After` |
 | `notfqdn` | 400 | `domain` missing or not a valid hostname |
-| `badip` | 400 | `ip`/`ipv6` missing, wrong address family, or not unicast (loopback, link-local, multicast, broadcast, unspecified) |
+| `badip <ip>` | 400 | Address not permitted by the hostname's [IP policy](#ip-policies) |
+| `badip` | 400 | `ip`/`ipv6` missing or wrong address family |
 | `nohost` | 404 | Hostname not allowed for this user, or no matching record |
 | `911` | 502 | Linode API error (details in server log) |
 

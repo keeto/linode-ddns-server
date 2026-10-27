@@ -8,10 +8,20 @@ listen: ":8080"
 #   key_file: /config/key.pem
 
 # Optional. IPs or CIDRs of reverse proxies whose X-Forwarded-For header is
-# trusted. Used only to log the real client address.
+# trusted. The real client address is used for logging, the failed login
+# limit and "source" conditions in IP policies.
 # trusted_proxies:
 #   - 127.0.0.1
 #   - "::1"
+
+# Optional. Named IP policies that users and domains can refer to. See the
+# README for the condition syntax.
+# ip_policies:
+#   lan: ["!192.168.1.1", private]
+
+# Optional. The IP policy for users and domains that set none. Defaults to
+# public, which allows only globally routable addresses.
+# default_ips: public
 
 users:
     # The username for basic authentication.
@@ -20,8 +30,13 @@ users:
     password_hash: "$2a$10$replace.with.output.of.hash-password.command........"
     # Linode API token used to change DNS records. Needs Domains read/write.
     linode_api_token: "your_linode_api_token"
+    # Optional. The IP policy for this user's domains; overrides default_ips.
+    # ips: public
     # Required. The hostnames this user may update. Records must already exist
-    # in Linode; they are never created.
+    # in Linode; they are never created. An entry can set its own policy with
+    # {host, ips}.
     domains:
       - home.example.com
       - example.com
+      # - host: nas.example.com
+      #   ips: [private]
