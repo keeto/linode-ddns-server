@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"strings"
@@ -74,6 +76,10 @@ func serve(args []string) error {
 	}
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	if cfg.TLS == nil && !loopback(cfg.Listen) {
+		log.Warn("serving plain HTTP on a non-loopback address; credentials travel in cleartext unless a TLS-terminating proxy is in front",
+			"addr", cfg.Listen)
+	}
 	srv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           server.New(cfg, linode.NewResolver(linode.NewClient()), log),
@@ -104,6 +110,20 @@ func serve(args []string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// loopback reports whether the listen address binds only to a loopback
+// interface.
+func loopback(listen string) bool {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	a, err := netip.ParseAddr(host)
+	return err == nil && a.IsLoopback()
 }
 
 // hashPassword reads a password from the first line of in and writes its
