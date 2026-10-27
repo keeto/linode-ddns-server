@@ -1,7 +1,8 @@
 # Image name including registry/user, e.g. IMAGE=myuser/linode-ddns or
 # IMAGE=ghcr.io/myuser/linode-ddns. Required for push.
 IMAGE     ?= linode-ddns
-VERSION   ?= 1.0.0
+# Image version tag, read from the VERSION file.
+VERSION   ?= $(shell cat VERSION)
 # Every platform the distroless runtime image is published for.
 PLATFORMS ?= linux/amd64,linux/arm64,linux/arm/v7,linux/ppc64le,linux/s390x
 BUILDER   ?= multiarch

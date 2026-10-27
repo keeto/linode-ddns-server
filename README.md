@@ -157,8 +157,9 @@ make test                                   # go vet + go test -race
 make bin                                    # local binary ./linode-ddns
 make image                                  # local docker image linode-ddns:latest
 make build                                  # all platforms, into the buildx cache
-make push IMAGE=myuser/linode-ddns          # push :1.0.0 and :latest (docker login first)
-make push IMAGE=myuser/linode-ddns VERSION=1.1.0
+make push IMAGE=myuser/linode-ddns          # push :<VERSION> and :latest (docker login first)
 ```
+
+The image version comes from the [`VERSION`](VERSION) file. To release a new version, change it there and commit it before running `make build` and `make push`.
 
 `build` and `push` use a buildx builder called `multiarch`, created on first use. Multi-platform images can't be loaded into the local Docker image store. `build` therefore leaves the result in the builder cache, and `push` reuses it.
