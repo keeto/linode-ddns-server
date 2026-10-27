@@ -1,0 +1,8 @@
+# Local configs hold Linode tokens and password hashes.
+/*.yaml
+!/config.example.yaml
+
+/design_doc.md
+
+# Binary from `make bin`.
+/linode-ddns

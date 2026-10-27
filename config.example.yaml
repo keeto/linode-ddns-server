@@ -1,0 +1,28 @@
+# Address to listen on. Defaults to :8080.
+listen: ":8080"
+
+# Optional. Serve HTTPS directly; set both or neither. Without it, run plain
+# HTTP behind a TLS-terminating reverse proxy.
+# tls:
+#   cert_file: /config/cert.pem
+#   key_file: /config/key.pem
+
+# Optional. IPs or CIDRs of reverse proxies whose X-Forwarded-For header is
+# trusted. Used only to log the real client address.
+# trusted_proxies:
+#   - 127.0.0.1
+#   - "::1"
+
+users:
+    # The username for basic authentication.
+  - username: "router"
+    # bcrypt hash of the password, generated with `linode-ddns hash-password`.
+    password_hash: "$2a$10$replace.with.output.of.hash-password.command........"
+    # Linode API token used to change DNS records. Needs Domains read/write.
+    linode_api_token: "your_linode_api_token"
+    # Optional. When provided, only these hostnames may be updated. When
+    # omitted, any hostname with an A/AAAA record in the token's domains may be
+    # updated. Records must already exist in Linode; they are never created.
+    domains:
+      - home.example.com
+      - example.com
