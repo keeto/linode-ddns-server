@@ -95,9 +95,10 @@ func TestParseIPs(t *testing.T) {
 }
 
 type response struct {
-	status int
-	ctype  string
-	body   string
+	status  int
+	ctype   string
+	body    string
+	nosniff string
 }
 
 func get(t *testing.T, srv *httptest.Server, path, user, accept string) response {
@@ -116,7 +117,7 @@ func get(t *testing.T, srv *httptest.Server, path, user, accept string) response
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
-	return response{resp.StatusCode, resp.Header.Get("Content-Type"), string(b)}
+	return response{resp.StatusCode, resp.Header.Get("Content-Type"), string(b), resp.Header.Get("X-Content-Type-Options")}
 }
 
 const auth = "router:secret"
@@ -155,6 +156,9 @@ func TestUpdateText(t *testing.T) {
 		}
 		if !strings.HasPrefix(got.ctype, "text/plain") {
 			t.Errorf("%s: content-type %q", tt.name, got.ctype)
+		}
+		if got.nosniff != "nosniff" {
+			t.Errorf("%s: X-Content-Type-Options %q", tt.name, got.nosniff)
 		}
 	}
 	if f.Target(1, 10) != "3.3.3.3" || f.Target(1, 11) != "2001:db8::2" || f.Target(1, 13) != "4.4.4.4" {

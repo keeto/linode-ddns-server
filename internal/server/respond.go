@@ -63,6 +63,7 @@ func write(w http.ResponseWriter, r *http.Request, results ...Result) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="linode-ddns", charset="UTF-8"`)
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 
 	if wantsJSON(r.Header.Values("Accept")) {
 		w.Header().Set("Content-Type", "application/json")
